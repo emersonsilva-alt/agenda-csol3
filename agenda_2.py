@@ -169,6 +169,23 @@ elif st.session_state.must_change_password:
 
 # --- APLICAÇÃO PRINCIPAL ---
 else:
+    # --- MODAL DE NOTIFICAÇÕES (DISPARADO PELO BOTÃO DO SINO) ---
+    @st.dialog("🔔 Minhas Notificações", width="large")
+    def show_notifications_dialog():
+        user_notifs = db.get_user_notifications(st.session_state.username)
+        if user_notifs:
+            st.markdown("### 📬 Histórico de Avisos")
+            for idx, n in enumerate(user_notifs):
+                # n: (id, mensagem, data_envio, lida)
+                status_icon = "🟢 Nova" if n[3] == 0 else "⚪ Lida"
+                with st.container():
+                    st.markdown(f"**{status_icon}** — *{n[2]}*")
+                    st.info(n[1])
+                    st.markdown("---")
+            db.mark_notifications_as_read(st.session_state.username)
+        else:
+            st.info("Você não possui notificações gravadas.")
+
     # Barra lateral integrada com fontes maiores
     col_user, col_bell = st.sidebar.columns([4, 1])
     with col_user:
@@ -178,8 +195,7 @@ else:
         unread_count = sum(1 for n in notifications if n[3] == 0)
         bell_icon = f"🔔 ({unread_count})" if unread_count > 0 else "🔔"
         if st.sidebar.button(bell_icon, key="btn_bell"):
-            db.mark_notifications_as_read(st.session_state.username)
-            st.rerun()
+            show_notifications_dialog()
 
     menu_options = ["📅 Calendário Geral", "📊 Relatório de Agendamentos", "🔑 Alterar Senha"]
     if st.session_state.username == "admin":
@@ -189,7 +205,7 @@ else:
     
     st.sidebar.markdown("---")
 
-    # Definição do Pop-up Modal interativo via st.dialog
+    # Definição do Pop-up Modal interativo via st.dialog para dia específico
     @st.dialog("🗓️ Agendamentos do Dia", width="large")
     def show_day_dialog(date_str):
         dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -212,6 +228,7 @@ else:
                             success, msg = db.delete_booking(b_id, st.session_state.username)
                             if success:
                                 st.success(msg)
+                                st.rerun()
                             else:
                                 st.error(msg)
                     else:
@@ -238,6 +255,7 @@ else:
                                     )
                                     if s_ok:
                                         st.success(s_msg)
+                                        st.rerun()
                                     else:
                                         st.error(s_msg)
         else:
@@ -266,6 +284,7 @@ else:
                     )
                     if ok:
                         st.success(msg + " (Notificação disparada e integrada).")
+                        st.rerun()
                     else:
                         st.error(msg)
 
@@ -287,15 +306,10 @@ else:
         
         st.rerun()
 
-    if notifications and unread_count > 0:
-        with st.sidebar.expander("📬 Notificações Recentes"):
-            for n in notifications[:5]:
-                st.caption(f"📅 {n[2]} - {n[1]}")
-
-    # 1. CALENDÁRIO GERAL
+    # 1. CALENDÁRIO GERAL COM INTERAÇÃO DE CLIQUE
     if menu == "📅 Calendário Geral":
         render_header("📅 Calendário da Sala de Reunião - CSOL-3")
-        st.markdown("Visualize as reuniões agendadas. Utilize a **barra lateral esquerda** para selecionar uma data e realizar o gerenciamento e reservas.")
+        st.markdown("Visualize as reuniões agendadas. **Clique em qualquer evento do calendário** ou selecione a data na barra lateral para ver os detalhes e gerenciar.")
         
         events = db.get_calendar_events()
         
@@ -318,7 +332,54 @@ else:
             "height": 600
         }
         
-        calendar(events=events, options=calendar_options, key="calendar_csol3")
+        # Captura o retorno do componente ao clicar em eventos/datas
+        cal_data = calendar(events=events, options=calendar_options, key="calendar_csol3")
+        
+        # --- PROCESSA O CLIQUE EM EVENTO NO CALENDÁRIO ---
+        if cal_data and "eventClick" in cal_data:
+            clicked_event = cal_data["eventClick"]["event"]
+            event_title = clicked_event.get("title", "")
+            event_start = clicked_event.get("start", "")
+            
+            st.markdown("---")
+            st.markdown("### 📌 Detalhes da Reunião Selecionada")
+            
+            # Formatação de data/hora a partir da string enviada pelo FullCalendar
+            try:
+                date_part = event_start.split("T")[0]
+                dt_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                formatted_dt = dt_obj.strftime("%d/%m/%Y")
+            except Exception:
+                date_part = ""
+                formatted_dt = event_start
+
+            # Busca no banco os dados completos do agendamento do dia
+            all_b = db.get_all_bookings()
+            matching_booking = next((b for b in all_b if b[4] == date_part and b[3] in event_title), None)
+            
+            if matching_booking:
+                b_id, b_user, b_fullname, b_title, b_date, b_start, b_end = matching_booking
+                
+                col_det1, col_det2 = st.columns([3, 1])
+                with col_det1:
+                    st.success(f"**Assunto:** {b_title}")
+                    st.write(f"👤 **Responsável:** {b_fullname} (`{b_user}`)")
+                    st.write(f"📅 **Data:** {formatted_dt}")
+                    st.write(f"⏰ **Horário:** {b_start} às {b_end}")
+                    
+                with col_det2:
+                    if st.session_state.username == "admin" or st.session_state.username == b_user:
+                        if st.button("❌ Cancelar esta Reunião", key=f"cal_del_{b_id}"):
+                            ok_del, msg_del = db.delete_booking(b_id, st.session_state.username)
+                            if ok_del:
+                                st.success(msg_del)
+                                st.rerun()
+                            else:
+                                st.error(msg_del)
+                    else:
+                        st.caption("Apenas o responsável ou administrador podem cancelar.")
+            else:
+                st.info(f"**Reunião:** {event_title} | **Data:** {formatted_dt}")
 
     # 2. RELATÓRIO DE AGENDAMENTOS COM PRÉ-VISUALIZAÇÃO E PDF
     elif menu == "📊 Relatório de Agendamentos":
