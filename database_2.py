@@ -358,7 +358,7 @@ def delete_booking(booking_id, username):
         conn.close()
         return False, "Você só pode cancelar suas próprias reservas."
 
-def resend_invitations_for_all_bookings():
+def resend_invitations_for_all_bookings(extra_guests_str=""):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('''
@@ -372,8 +372,17 @@ def resend_invitations_for_all_bookings():
     count = 0
     for b in bookings:
         username, full_name, email, title, date_str, start_time, end_time = b
-        dest_email = email if email else SENDER_EMAIL
-        enviar_email_convite_ics(dest_email, full_name, title, date_str, start_time, end_time)
+        
+        destinatarios = [email if email else SENDER_EMAIL]
+        if extra_guests_str:
+            extras = [e.strip() for e in extra_guests_str.replace(";", ",").split(",") if e.strip()]
+            for e_extra in extras:
+                if e_extra not in destinatarios:
+                    destinatarios.append(e_extra)
+                    
+        for dest in destinatarios:
+            enviar_email_convite_ics(dest, full_name, title, date_str, start_time, end_time)
+            
         count += 1
         
-    return True, f"{count} convites foram disparados com sucesso para as reservas existentes!"
+    return True, f"Convites disparados com sucesso para as {count} reservas registadas!"

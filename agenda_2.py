@@ -417,7 +417,6 @@ else:
         else:
             render_header("⚙️ Gestão de Usuários")
             
-            # Abas para Separar Cadastro, Edição, Status e Manutenção
             tab1, tab2, tab3, tab4 = st.tabs(["➕ Cadastrar Novo", "✏️ Editar Cadastro", "🔄 Ativar / Inativar", "📤 Manutenção de Convites"])
             
             users_list = db.get_all_users()
@@ -487,11 +486,13 @@ else:
 
             with tab4:
                 st.subheader("📤 Reenvio de Convites de Calendário (.ics)")
-                st.markdown("Clique no botão abaixo para forçar o disparo do e-mail com o arquivo `.ics` para **todas as reuniões atualmente cadastradas** no banco de dados de produção:")
+                st.markdown("Pode informar e-mails adicionais (separados por vírgula) para garantir que os convidados também recebam o reenvio juntamente com os criadores:")
+                
+                extra_emails_input = st.text_input("E-mails adicionais de convidados (opcional):")
                 
                 if st.button("🚀 Disparar Reenvio Geral para Reservas Atuais"):
                     with st.spinner("A enviar convites..."):
-                        success, msg = db.resend_invitations_for_all_bookings()
+                        success, msg = db.resend_invitations_for_all_bookings(extra_emails_input)
                         if success:
                             st.success(msg)
                         else:
