@@ -4,6 +4,8 @@ import bcrypt
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 
 DB_NAME = "csol3_agenda.db"
 
@@ -11,16 +13,14 @@ DB_NAME = "csol3_agenda.db"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "saladereuniao.csol3@gmail.com"
-SENDER_PASSWORD = "qzhllawezztjzfmd"  # Senha de aplicativo gerada
+SENDER_PASSWORD = "qzhllayezztjzfmt"  # Senha de aplicativo gerada
 
 def enviar_email_convite_ics(email_destino, nome_usuario, titulo_reuniao, data_str, hora_inicio, hora_fim):
     try:
-        # Estrutura MIME 'alternative' com cabeçalhos específicos para integração com Outlook/Teams
-        msg = MIMEMultipart('alternative')
+        msg = MIMEMultipart("mixed")
         msg['From'] = SENDER_EMAIL
         msg['To'] = email_destino
-        msg['Subject'] = f"🗓️ Convite de Reunião: {titulo_reuniao} (Sala CSOL-3)"
-        msg['Content-Class'] = "urn:content-classes:calendarmessage"
+        msg['Subject'] = f"🗓️ Confirmação de Reserva: {titulo_reuniao} (Sala CSOL-3)"
 
         dt_obj = datetime.strptime(data_str, "%Y-%m-%d")
         data_formatada = dt_obj.strftime("%d/%m/%Y")
@@ -28,15 +28,15 @@ def enviar_email_convite_ics(email_destino, nome_usuario, titulo_reuniao, data_s
         corpo_html = f"""
         <html>
             <body style="font-family: Arial, sans-serif; color: #333;">
-                <h2 style="color: #0078d4;">Convite de Agendamento — Sala CSOL-3</h2>
+                <h2 style="color: #0078d4;">Confirmação de Agendamento — Sala CSOL-3</h2>
                 <p>Olá!</p>
-                <p>Você foi convidado(a) para a reunião agendada por <b>{nome_usuario}</b> na Sala de Reunião CSOL-3.</p>
+                <p>Você foi incluído(a) na reunião agendada por <b>{nome_usuario}</b> na Sala de Reunião CSOL-3.</p>
                 <ul style="background-color: #f3f2f1; padding: 15px; border-radius: 5px; list-style: none;">
                     <li>📌 <b>Assunto:</b> {titulo_reuniao}</li>
                     <li>📅 <b>Data:</b> {data_formatada}</li>
                     <li>⏰ <b>Horário:</b> {hora_inicio} às {hora_fim}</li>
                 </ul>
-                <p><i>💡 Utilize os botões de resposta no cabeçalho do seu e-mail para <b>Aceitar</b> ou <b>Recusar</b> este convite no seu calendário.</i></p>
+                <p><i>💡 O arquivo de convite de calendário (<b>.ics</b>) está anexado a esta mensagem. Abra-o ou clique em "Adicionar à Agenda" para incluí-lo automaticamente no seu Microsoft Teams ou Outlook.</i></p>
             </body>
         </html>
         """
@@ -45,7 +45,6 @@ def enviar_email_convite_ics(email_destino, nome_usuario, titulo_reuniao, data_s
         dt_start = f"{data_str.replace('-', '')}T{hora_inicio.replace(':', '')}00"
         dt_end = f"{data_str.replace('-', '')}T{hora_fim.replace(':', '')}00"
 
-        # iCalendar com formato de REQUEST nativo e organizador/participantes
         ics_content = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//CSOL3 Agenda//PT
@@ -57,15 +56,14 @@ DESCRIPTION:Reunião agendada via Sistema CSOL-3 por {nome_usuario}.
 DTSTART:{dt_start}
 DTEND:{dt_end}
 STATUS:CONFIRMED
-ORGANIZER;CN="Sala CSOL-3":mailto:{SENDER_EMAIL}
-ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN="{email_destino}":mailto:{email_destino}
 END:VEVENT
 END:VCALENDAR"""
 
-        # Inserção direta como 'text/calendar; method=REQUEST' inline para ativação de botões nativos
-        part_ics = MIMEText(ics_content, 'calendar; method=REQUEST; charset=utf-8', 'utf-8')
-        part_ics.add_header('Content-Disposition', 'inline; filename="invite.ics"')
-        msg.attach(part_ics)
+        part = MIMEBase('text', 'calendar', method='REQUEST', name='reserva_csol3.ics')
+        part.set_payload(ics_content.encode('utf-8'))
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', 'attachment; filename="reserva_csol3.ics"')
+        msg.attach(part)
 
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
@@ -244,4 +242,150 @@ def get_calendar_events():
             "title": f"{title} ({full_name})",
             "start": f"{date_str}T{start_time}",
             "end": f"{date_str}T{end_time}",
-            "id": str
+            "id": str(event_id),
+            "backgroundColor": "#0078d4",
+            "borderColor": "#005a9e"
+        })
+    return events
+
+def add_notification(username, message, date_str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO notifications (username, message, date) VALUES (?, ?, ?)", (username, message, date_str))
+    conn.commit()
+    conn.close()
+
+def get_user_notifications(username):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, message, date, is_read FROM notifications WHERE username = ? ORDER BY id DESC", (username,))
+    data = cursor.fetchall()
+    conn.close()
+    return data
+
+def mark_notifications_as_read(username):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE notifications SET is_read = 1 WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
+
+def add_booking(username, title, date_str, start_time, end_time, guest_emails_str=""):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT full_name, email FROM users WHERE username = ?", (username,))
+    user_res = cursor.fetchone()
+    full_name = user_res[0] if user_res else username
+    creator_email = user_res[1] if user_res and user_res[1] else SENDER_EMAIL
+
+    cursor.execute('''
+        SELECT start_time, end_time FROM bookings 
+        WHERE date = ? AND NOT (end_time <= ? OR start_time >= ?)
+    ''', (date_str, start_time, end_time))
+    
+    if cursor.fetchall():
+        conn.close()
+        return False, "Já existe uma reserva na sala CSOL-3 que conflita com este horário!"
+    
+    cursor.execute('''
+        INSERT INTO bookings (username, title, date, start_time, end_time) 
+        VALUES (?, ?, ?, ?, ?)
+    ''', (username, title, date_str, start_time, end_time))
+    conn.commit()
+    conn.close()
+    
+    msg = f"Reserva confirmada: '{title}' em {date_str} das {start_time} às {end_time}."
+    add_notification(username, msg, date_str)
+    if username != "admin":
+        add_notification("admin", f"Nova reserva de {username}: '{title}' em {date_str} ({start_time}-{end_time}).", date_str)
+        
+    destinatarios = [creator_email]
+    if guest_emails_str:
+        emails_extras = [e.strip() for e in guest_emails_str.replace(";", ",").split(",") if e.strip()]
+        for email_extra in emails_extras:
+            if email_extra and email_extra not in destinatarios:
+                destinatarios.append(email_extra)
+
+    for email_dest in destinatarios:
+        enviar_email_convite_ics(email_dest, full_name, title, date_str, start_time, end_time)
+        
+    return True, "Reserva realizada com sucesso e convites disparados por e-mail!"
+
+def update_booking(booking_id, username, title, date_str, start_time, end_time):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT username FROM bookings WHERE id = ?", (booking_id,))
+    res = cursor.fetchone()
+    if not res or (res[0] != username and username != "admin"):
+        conn.close()
+        return False, "Você não tem permissão para alterar esta reserva."
+        
+    cursor.execute('''
+        SELECT start_time, end_time FROM bookings 
+        WHERE date = ? AND id != ? AND NOT (end_time <= ? OR start_time >= ?)
+    ''', (date_str, booking_id, start_time, end_time))
+    
+    if cursor.fetchall():
+        conn.close()
+        return False, "Conflito de horário com outra reserva existente!"
+        
+    cursor.execute('''
+        UPDATE bookings SET title = ?, date = ?, start_time = ?, end_time = ? WHERE id = ?
+    ''', (title, date_str, start_time, end_time, booking_id))
+    conn.commit()
+    conn.close()
+    return True, "Reserva alterada com sucesso!"
+
+def delete_booking(booking_id, username):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT username FROM bookings WHERE id = ?", (booking_id,))
+    res = cursor.fetchone()
+    if not res:
+        conn.close()
+        return False, "Reserva não encontrada."
+        
+    owner = res[0]
+    if username == "admin" or username == owner:
+        cursor.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
+        conn.commit()
+        conn.close()
+        return True, "Reserva cancelada com sucesso!"
+    else:
+        conn.close()
+        return False, "Você só pode cancelar suas próprias reservas."
+
+def resend_invitation_for_single_booking(booking_id, extra_guests_str=""):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT b.username, u.full_name, u.email, b.title, b.date, b.start_time, b.end_time 
+        FROM bookings b 
+        JOIN users u ON b.username = u.username
+        WHERE b.id = ?
+    ''', (booking_id,))
+    booking = cursor.fetchone()
+    conn.close()
+    
+    if not booking:
+        return False, "Reserva não encontrada."
+        
+    username, full_name, email, title, date_str, start_time, end_time = booking
+    
+    destinatarios = [email if email else SENDER_EMAIL]
+    if extra_guests_str:
+        extras = [e.strip() for e in extra_guests_str.replace(";", ",").split(",") if e.strip()]
+        for e_extra in extras:
+            if e_extra not in destinatarios:
+                destinatarios.append(e_extra)
+                
+    sucessos = 0
+    for dest in destinatarios:
+        ok, _ = enviar_email_convite_ics(dest, full_name, title, date_str, start_time, end_time)
+        if ok:
+            sucessos += 1
+            
+    return True, f"Convite para '{title}' enviado com sucesso para {sucessos} e-mail(s)!"
