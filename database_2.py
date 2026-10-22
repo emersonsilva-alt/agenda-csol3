@@ -13,7 +13,7 @@ DB_NAME = "csol3_agenda.db"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "saladereuniao.csol3@gmail.com"
-SENDER_PASSWORD = "qzhllawezztjzfmd"  # Senha de aplicativo gerada
+SENDER_PASSWORD = "qzhllayezztjzfmt"  # Senha de aplicativo gerada
 
 def enviar_email_convite_ics(email_destino, nome_usuario, titulo_reuniao, data_str, hora_inicio, hora_fim):
     try:
@@ -358,31 +358,34 @@ def delete_booking(booking_id, username):
         conn.close()
         return False, "Você só pode cancelar suas próprias reservas."
 
-def resend_invitations_for_all_bookings(extra_guests_str=""):
+def resend_invitation_for_single_booking(booking_id, extra_guests_str=""):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT b.username, u.full_name, u.email, b.title, b.date, b.start_time, b.end_time 
         FROM bookings b 
         JOIN users u ON b.username = u.username
-    ''')
-    bookings = cursor.fetchall()
+        WHERE b.id = ?
+    ''', (booking_id,))
+    booking = cursor.fetchone()
     conn.close()
     
-    count = 0
-    for b in bookings:
-        username, full_name, email, title, date_str, start_time, end_time = b
+    if not booking:
+        return False, "Reserva não encontrada."
         
-        destinatarios = [email if email else SENDER_EMAIL]
-        if extra_guests_str:
-            extras = [e.strip() for e in extra_guests_str.replace(";", ",").split(",") if e.strip()]
-            for e_extra in extras:
-                if e_extra not in destinatarios:
-                    destinatarios.append(e_extra)
-                    
-        for dest in destinatarios:
-            enviar_email_convite_ics(dest, full_name, title, date_str, start_time, end_time)
+    username, full_name, email, title, date_str, start_time, end_time = booking
+    
+    destinatarios = [email if email else SENDER_EMAIL]
+    if extra_guests_str:
+        extras = [e.strip() for e in extra_guests_str.replace(";", ",").split(",") if e.strip()]
+        for e_extra in extras:
+            if e_extra not in destinatarios:
+                destinatarios.append(e_extra)
+                
+    sucessos = 0
+    for dest in destinatarios:
+        ok, _ = enviar_email_convite_ics(dest, full_name, title, date_str, start_time, end_time)
+        if ok:
+            sucessos += 1
             
-        count += 1
-        
-    return True, f"Convites disparados com sucesso para as {count} reservas registadas!"
+    return True, f"Convite para '{title}' enviado com sucesso para {sucessos} e-mail(s)!"

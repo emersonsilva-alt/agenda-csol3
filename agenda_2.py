@@ -485,15 +485,27 @@ else:
                         st.rerun()
 
             with tab4:
-                st.subheader("📤 Reenvio de Convites de Calendário (.ics)")
-                st.markdown("Pode informar e-mails adicionais (separados por vírgula) para garantir que os convidados também recebam o reenvio juntamente com os criadores:")
+                st.subheader("📤 Reenvio Seletivo de Convite de Calendário (.ics)")
+                st.markdown("Selecione a reunião específica que deseja reenviar e insira opcionalmente os e-mails dos convidados correspondentes:")
                 
-                extra_emails_input = st.text_input("E-mails adicionais de convidados (opcional):")
-                
-                if st.button("🚀 Disparar Reenvio Geral para Reservas Atuais"):
-                    with st.spinner("A enviar convites..."):
-                        success, msg = db.resend_invitations_for_all_bookings(extra_emails_input)
-                        if success:
-                            st.success(msg)
-                        else:
-                            st.error(msg)
+                all_bks = db.get_all_bookings()
+                if all_bks:
+                    options_dict = {
+                        f"ID {b[0]} - {datetime.strptime(b[4], '%Y-%m-%d').strftime('%d/%m/%Y')} {b[5]}-{b[6]} | {b[3]} ({b[2]})": b[0]
+                        for b in all_bks
+                    }
+                    
+                    selected_label = st.selectbox("Selecione a Reserva:", options=list(options_dict.keys()))
+                    selected_booking_id = options_dict[selected_label]
+                    
+                    extra_emails_input = st.text_input("E-mails dos convidados desta reunião (separados por vírgula):")
+                    
+                    if st.button("🚀 Disparar Reenvio Apenas Para Esta Reserva"):
+                        with st.spinner("A enviar convites..."):
+                            success, msg = db.resend_invitation_for_single_booking(selected_booking_id, extra_emails_input)
+                            if success:
+                                st.success(msg)
+                            else:
+                                st.error(msg)
+                else:
+                    st.info("Nenhuma reserva cadastrada para reenvio.")
