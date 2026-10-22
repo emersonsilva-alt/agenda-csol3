@@ -270,6 +270,9 @@ else:
             with qc2:
                 q_end = st.time_input("Horário de Término")
                 
+            # Campo para adicionar convidados extras
+            q_guests = st.text_input("E-mails dos convidados (separados por vírgula, opcional)")
+                
             q_submit = st.form_submit_button("Confirmar Reserva")
             if q_submit:
                 if not q_title:
@@ -279,10 +282,10 @@ else:
                 else:
                     ok, msg = db.add_booking(
                         st.session_state.username, q_title, date_str, 
-                        q_start.strftime("%H:%M"), q_end.strftime("%H:%M")
+                        q_start.strftime("%H:%M"), q_end.strftime("%H:%M"), q_guests
                     )
                     if ok:
-                        st.success(msg + " (Notificação disparada e integrada).")
+                        st.success(msg)
                         st.rerun()
                     else:
                         st.error(msg)
@@ -437,30 +440,31 @@ else:
             st.subheader("Cadastrar Novo Usuário")
             with st.form("new_user_form"):
                 new_user = st.text_input("Nome de Usuário (Login)")
+                new_email = st.text_input("E-mail do Usuário")
                 default_pass = st.text_input("Senha Padrão Inicial", value="mudar123", type="password")
                 new_name = st.text_input("Nome Completo")
                 submit_user = st.form_submit_button("Cadastrar Usuário")
                 
                 if submit_user:
-                    if new_user and default_pass and new_name:
-                        created, msg = db.add_user_by_admin(new_user, default_pass, new_name)
+                    if new_user and new_email and default_pass and new_name:
+                        created, msg = db.add_user_by_admin(new_user, default_pass, new_name, new_email)
                         if created:
                             st.success(f"{msg} (Senha padrão: {default_pass} - exigirá troca no primeiro login).")
                         else:
                             st.error(msg)
                     else:
-                        st.warning("Preencha todos os campos.")
+                        st.warning("Preencha todos os campos, incluindo o e-mail.")
                         
             st.markdown("---")
             st.subheader("Usuários Cadastrados (Ativar / Inativar)")
             users_list = db.get_all_users()
             
-            df_users = pd.DataFrame(users_list, columns=["Usuário", "Nome Completo", "Ativo", "Troca Obrigatória"])
+            df_users = pd.DataFrame(users_list, columns=["Usuário", "Nome Completo", "E-mail", "Ativo", "Troca Obrigatória"])
             st.dataframe(df_users, use_container_width=True)
             
             target_user = st.selectbox("Selecione o usuário para alterar status:", options=[u[0] for u in users_list if u[0] != "admin"])
             if target_user:
-                current_status = next((u[2] for u in users_list if u[0] == target_user), 1)
+                current_status = next((u[3] for u in users_list if u[0] == target_user), 1)
                 action_label = "Inativar Usuário" if current_status == 1 else "Reativar Usuário"
                 
                 if st.button(action_label):
