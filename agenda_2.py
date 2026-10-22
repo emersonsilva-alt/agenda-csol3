@@ -91,10 +91,14 @@ def render_header(title_text):
         elif os.path.exists("logo_prodeb.jpeg"):
             st.image("logo_prodeb.jpeg", width=220)
 
+# Inicialização robusta do estado da sessão
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+if "username" not in st.session_state:
     st.session_state.username = ""
+if "full_name" not in st.session_state:
     st.session_state.full_name = ""
+if "must_change_password" not in st.session_state:
     st.session_state.must_change_password = False
 
 # --- TELA DE LOGIN CENTRALIZADA ---
@@ -166,7 +170,7 @@ else:
         bell_icon = f"🔔 ({unread_count})" if unread_count > 0 else "🔔"
         if st.sidebar.button(bell_icon, key="btn_bell"):
             db.mark_notifications_as_read(st.session_state.username)
-            st.rerun()  # Correção aplicada aqui para estabilizar o ciclo de renderização e evitar loop do favicon
+            st.rerun()
 
     menu_options = ["📅 Calendário Geral", "📊 Relatório de Agendamentos", "🔑 Alterar Senha"]
     if st.session_state.username == "admin":
