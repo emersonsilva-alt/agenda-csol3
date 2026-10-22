@@ -91,15 +91,18 @@ def render_header(title_text):
         elif os.path.exists("logo_prodeb.jpeg"):
             st.image("logo_prodeb.jpeg", width=220)
 
-# Inicialização robusta do estado da sessão
+# --- INICIALIZAÇÃO DA SESSÃO INTEGRADA COM A URL (PERSISTÊNCIA NO F5) ---
 if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "full_name" not in st.session_state:
-    st.session_state.full_name = ""
-if "must_change_password" not in st.session_state:
-    st.session_state.must_change_password = False
+    if st.query_params.get("logged_in") == "true":
+        st.session_state.logged_in = True
+        st.session_state.username = st.query_params.get("username", "")
+        st.session_state.full_name = st.query_params.get("full_name", "")
+        st.session_state.must_change_password = False
+    else:
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.session_state.full_name = ""
+        st.session_state.must_change_password = False
 
 # --- TELA DE LOGIN CENTRALIZADA ---
 if not st.session_state.logged_in:
@@ -123,6 +126,12 @@ if not st.session_state.logged_in:
                     st.session_state.username = username_input
                     st.session_state.full_name = user_data["full_name"]
                     st.session_state.must_change_password = user_data["must_change_password"]
+                    
+                    # Salva os parâmetros na URL para manter a sessão ao atualizar a página (F5)
+                    st.query_params["logged_in"] = "true"
+                    st.query_params["username"] = username_input
+                    st.query_params["full_name"] = user_data["full_name"]
+                    
                     st.rerun()
                 else:
                     st.error(error_msg)
@@ -272,6 +281,10 @@ else:
         st.session_state.username = ""
         st.session_state.full_name = ""
         st.session_state.must_change_password = False
+        
+        # Limpa os parâmetros da URL ao deslogar
+        st.query_params.clear()
+        
         st.rerun()
 
     if notifications and unread_count > 0:
