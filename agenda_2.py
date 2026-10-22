@@ -417,8 +417,8 @@ else:
         else:
             render_header("⚙️ Gestão de Usuários")
             
-            # Abas para Separar Cadastro, Edição e Status
-            tab1, tab2, tab3 = st.tabs(["➕ Cadastrar Novo", "✏️ Editar Cadastro", "🔄 Ativar / Inativar"])
+            # Abas para Separar Cadastro, Edição, Status e Manutenção
+            tab1, tab2, tab3, tab4 = st.tabs(["➕ Cadastrar Novo", "✏️ Editar Cadastro", "🔄 Ativar / Inativar", "📤 Manutenção de Convites"])
             
             users_list = db.get_all_users()
             
@@ -447,7 +447,6 @@ else:
                 edit_target = st.selectbox("Selecione o usuário para editar:", options=[u[0] for u in users_list])
                 
                 if edit_target:
-                    # Busca os dados atuais do usuário selecionado
                     u_data = next((u for u in users_list if u[0] == edit_target), None)
                     if u_data:
                         curr_name = u_data[1]
@@ -485,3 +484,15 @@ else:
                         db.toggle_user_status(target_user, new_status)
                         st.success(f"Status do usuário {target_user} alterado com sucesso!")
                         st.rerun()
+
+            with tab4:
+                st.subheader("📤 Reenvio de Convites de Calendário (.ics)")
+                st.markdown("Clique no botão abaixo para forçar o disparo do e-mail com o arquivo `.ics` para **todas as reuniões atualmente cadastradas** no banco de dados de produção:")
+                
+                if st.button("🚀 Disparar Reenvio Geral para Reservas Atuais"):
+                    with st.spinner("A enviar convites..."):
+                        success, msg = db.resend_invitations_for_all_bookings()
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
