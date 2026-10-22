@@ -13,7 +13,7 @@ DB_NAME = "csol3_agenda.db"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "saladereuniao.csol3@gmail.com"
-SENDER_PASSWORD = "qzhllayezztjzfmt"  # Senha de aplicativo gerada
+SENDER_PASSWORD = "qzhllawezztjzfmd"  # Senha de aplicativo gerada
 
 def enviar_email_convite_ics(email_destino, nome_usuario, titulo_reuniao, data_str, hora_inicio, hora_fim):
     try:
