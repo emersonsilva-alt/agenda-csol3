@@ -89,7 +89,6 @@ def init_db():
         )
     ''')
     
-    # Migração caso a tabela já exista sem a coluna email
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN email TEXT")
         conn.commit()
@@ -161,6 +160,28 @@ def add_user_by_admin(username, password, full_name, email):
         return True, "Usuário cadastrado com sucesso!"
     except sqlite3.IntegrityError:
         return False, "Este nome de usuário já existe."
+
+def update_user_by_admin(username, full_name, email, new_password=None):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        if new_password and new_password.strip():
+            hashed_pwd = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            cursor.execute(
+                "UPDATE users SET full_name = ?, email = ?, password = ?, must_change_password = 1 WHERE username = ?",
+                (full_name, email, hashed_pwd, username)
+            )
+        else:
+            cursor.execute(
+                "UPDATE users SET full_name = ?, email = ? WHERE username = ?",
+                (full_name, email, username)
+            )
+        conn.commit()
+        conn.close()
+        return True, "Cadastro atualizado com sucesso!"
+    except Exception as e:
+        conn.close()
+        return False, f"Erro ao atualizar: {str(e)}"
 
 def update_password(username, new_password):
     hashed_pwd = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -253,7 +274,6 @@ def add_booking(username, title, date_str, start_time, end_time, guest_emails_st
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Busca o nome completo e o e-mail do usuário criador
     cursor.execute("SELECT full_name, email FROM users WHERE username = ?", (username,))
     user_res = cursor.fetchone()
     full_name = user_res[0] if user_res else username
@@ -280,7 +300,6 @@ def add_booking(username, title, date_str, start_time, end_time, guest_emails_st
     if username != "admin":
         add_notification("admin", f"Nova reserva de {username}: '{title}' em {date_str} ({start_time}-{end_time}).", date_str)
         
-    # Coleta os e-mails para envio (criador + convidados informados)
     destinatarios = [creator_email]
     if guest_emails_str:
         emails_extras = [e.strip() for e in guest_emails_str.replace(";", ",").split(",") if e.strip()]
@@ -288,7 +307,6 @@ def add_booking(username, title, date_str, start_time, end_time, guest_emails_st
             if email_extra and email_extra not in destinatarios:
                 destinatarios.append(email_extra)
 
-    # Dispara o convite .ics para todos os destinatários
     for email_dest in destinatarios:
         enviar_email_convite_ics(email_dest, full_name, title, date_str, start_time, end_time)
         
@@ -325,12 +343,12 @@ def delete_booking(booking_id, username):
     cursor = conn.cursor()
     
     cursor.execute("SELECT username FROM bookings WHERE id = ?", (booking_id,))
-    res = cookie = cursor.fetchone()
-    if not cookie:
+    res = cursor.fetchone()
+    if not res:
         conn.close()
         return False, "Reserva não encontrada."
         
-    owner = cookie[0]
+    owner = res[0]
     if username == "admin" or username == owner:
         cursor.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
         conn.commit()

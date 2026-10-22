@@ -127,7 +127,6 @@ if not st.session_state.logged_in:
                     st.session_state.full_name = user_data["full_name"]
                     st.session_state.must_change_password = user_data["must_change_password"]
                     
-                    # Salva os parâmetros na URL para manter a sessão ao atualizar a página (F5)
                     st.query_params["logged_in"] = "true"
                     st.query_params["username"] = username_input
                     st.query_params["full_name"] = user_data["full_name"]
@@ -169,7 +168,6 @@ elif st.session_state.must_change_password:
 
 # --- APLICAÇÃO PRINCIPAL ---
 else:
-    # --- MODAL DE NOTIFICAÇÕES (DISPARADO PELO BOTÃO DO SINO) ---
     @st.dialog("🔔 Minhas Notificações", width="large")
     def show_notifications_dialog():
         user_notifs = db.get_user_notifications(st.session_state.username)
@@ -185,7 +183,6 @@ else:
         else:
             st.info("Você não possui notificações gravadas.")
 
-    # Barra lateral integrada com fontes maiores
     col_user, col_bell = st.sidebar.columns([4, 1])
     with col_user:
         st.sidebar.markdown(f"**Olá, {st.session_state.full_name}**")
@@ -204,7 +201,6 @@ else:
     
     st.sidebar.markdown("---")
 
-    # Definição do Pop-up Modal interativo via st.dialog para dia específico
     @st.dialog("🗓️ Agendamentos do Dia", width="large")
     def show_day_dialog(date_str):
         dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -214,7 +210,7 @@ else:
         
         all_bookings = db.get_all_bookings()
         day_bookings = [b for b in all_bookings if b[4] == date_str]
-        day_bookings.sort(key=lambda x: x[5]) # Ordem de horário
+        day_bookings.sort(key=lambda x: x[5])
         
         st.markdown("### 📌 Reservas (Por Ordem de Horário)")
         if day_bookings:
@@ -270,7 +266,6 @@ else:
             with qc2:
                 q_end = st.time_input("Horário de Término")
                 
-            # Campo para adicionar convidados extras
             q_guests = st.text_input("E-mails dos convidados (separados por vírgula, opcional)")
                 
             q_submit = st.form_submit_button("Confirmar Reserva")
@@ -290,7 +285,6 @@ else:
                     else:
                         st.error(msg)
 
-    # Seção na barra lateral com fontes ampliadas
     st.sidebar.markdown("### 🔍 Gerenciar Reserva")
     sidebar_date = st.sidebar.date_input("Escolha o dia:", value=date.today(), format="DD/MM/YYYY", key="sb_date")
     if st.sidebar.button("Abrir", use_container_width=True):
@@ -302,13 +296,9 @@ else:
         st.session_state.username = ""
         st.session_state.full_name = ""
         st.session_state.must_change_password = False
-        
-        # Limpa os parâmetros da URL ao deslogar
         st.query_params.clear()
-        
         st.rerun()
 
-    # 1. CALENDÁRIO GERAL COM INTERAÇÃO DE CLIQUE NO DIA E NO EVENTO
     if menu == "📅 Calendário Geral":
         render_header("📅 Calendário da Sala de Reunião - CSOL-3")
         st.markdown("Visualize as reuniões agendadas. **Clique em qualquer dia do calendário** para abrir os agendamentos da data ou gerenciar pela barra lateral.")
@@ -334,28 +324,20 @@ else:
             "height": 600
         }
         
-        # Captura o retorno do componente de calendário
         cal_data = calendar(events=events, options=calendar_options, key="calendar_csol3")
         
-        # --- PROCESSA O CLIQUE EM QUALQUER DATA DO CALENDÁRIO ---
         if cal_data:
             selected_date_str = None
-            
-            # Se clicou em um dia vazio do mês
             if "dateClick" in cal_data:
                 selected_date_str = cal_data["dateClick"].get("date", "").split("T")[0]
-            
-            # Se clicou diretamente em cima de uma reunião agendada
             elif "eventClick" in cal_data:
                 clicked_event = cal_data["eventClick"]["event"]
                 event_start = clicked_event.get("start", "")
                 selected_date_str = event_start.split("T")[0]
             
-            # Dispara o modal automaticamente para a data identificada
             if selected_date_str:
                 show_day_dialog(selected_date_str)
 
-    # 2. RELATÓRIO DE AGENDAMENTOS COM PRÉ-VISUALIZAÇÃO E PDF
     elif menu == "📊 Relatório de Agendamentos":
         render_header("📊 Relatório de Agendamentos - Sala CSOL-3")
         st.markdown("Selecione o período desejado para gerar o relatório consolidado de reuniões com pré-visualização.")
@@ -409,7 +391,6 @@ else:
         else:
             st.info("Nenhum agendamento encontrado no período selecionado.")
 
-    # 3. ALTERAR SENHA
     elif menu == "🔑 Alterar Senha":
         render_header("🔑 Alterar Minha Senha")
         with st.form("change_my_password"):
@@ -430,45 +411,77 @@ else:
                     db.update_password(st.session_state.username, new_pwd)
                     st.success("Senha alterada com sucesso!")
 
-    # 4. GERENCIAR USUÁRIOS (ADMIN)
     elif menu == "⚙️ Gerenciar Usuários (Admin)":
         if st.session_state.username != "admin":
             st.warning("Acesso restrito ao administrador.")
         else:
             render_header("⚙️ Gestão de Usuários")
             
-            st.subheader("Cadastrar Novo Usuário")
-            with st.form("new_user_form"):
-                new_user = st.text_input("Nome de Usuário (Login)")
-                new_email = st.text_input("E-mail do Usuário")
-                default_pass = st.text_input("Senha Padrão Inicial", value="mudar123", type="password")
-                new_name = st.text_input("Nome Completo")
-                submit_user = st.form_submit_button("Cadastrar Usuário")
-                
-                if submit_user:
-                    if new_user and new_email and default_pass and new_name:
-                        created, msg = db.add_user_by_admin(new_user, default_pass, new_name, new_email)
-                        if created:
-                            st.success(f"{msg} (Senha padrão: {default_pass} - exigirá troca no primeiro login).")
-                        else:
-                            st.error(msg)
-                    else:
-                        st.warning("Preencha todos os campos, incluindo o e-mail.")
-                        
-            st.markdown("---")
-            st.subheader("Usuários Cadastrados (Ativar / Inativar)")
+            # Abas para Separar Cadastro, Edição e Status
+            tab1, tab2, tab3 = st.tabs(["➕ Cadastrar Novo", "✏️ Editar Cadastro", "🔄 Ativar / Inativar"])
+            
             users_list = db.get_all_users()
             
-            df_users = pd.DataFrame(users_list, columns=["Usuário", "Nome Completo", "E-mail", "Ativo", "Troca Obrigatória"])
-            st.dataframe(df_users, use_container_width=True)
-            
-            target_user = st.selectbox("Selecione o usuário para alterar status:", options=[u[0] for u in users_list if u[0] != "admin"])
-            if target_user:
-                current_status = next((u[3] for u in users_list if u[0] == target_user), 1)
-                action_label = "Inativar Usuário" if current_status == 1 else "Reativar Usuário"
+            with tab1:
+                st.subheader("Cadastrar Novo Usuário")
+                with st.form("new_user_form"):
+                    new_user = st.text_input("Nome de Usuário (Login)")
+                    new_email = st.text_input("E-mail do Usuário")
+                    default_pass = st.text_input("Senha Padrão Inicial", value="mudar123", type="password")
+                    new_name = st.text_input("Nome Completo")
+                    submit_user = st.form_submit_button("Cadastrar Usuário")
+                    
+                    if submit_user:
+                        if new_user and new_email and default_pass and new_name:
+                            created, msg = db.add_user_by_admin(new_user, default_pass, new_name, new_email)
+                            if created:
+                                st.success(f"{msg} (Senha padrão: {default_pass} - exigirá troca no primeiro login).")
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                        else:
+                            st.warning("Preencha todos os campos, incluindo o e-mail.")
+
+            with tab2:
+                st.subheader("Editar Dados de Usuário Existente")
+                edit_target = st.selectbox("Selecione o usuário para editar:", options=[u[0] for u in users_list])
                 
-                if st.button(action_label):
-                    new_status = 0 if current_status == 1 else 1
-                    db.toggle_user_status(target_user, new_status)
-                    st.success(f"Status do usuário {target_user} alterado com sucesso!")
-                    st.rerun()
+                if edit_target:
+                    # Busca os dados atuais do usuário selecionado
+                    u_data = next((u for u in users_list if u[0] == edit_target), None)
+                    if u_data:
+                        curr_name = u_data[1]
+                        curr_email = u_data[2] if u_data[2] else ""
+                        
+                        with st.form("edit_user_form"):
+                            ed_name = st.text_input("Nome Completo", value=curr_name)
+                            ed_email = st.text_input("E-mail", value=curr_email)
+                            ed_pass = st.text_input("Nova Senha (Deixe em branco para não alterar)", type="password")
+                            submit_edit_user = st.form_submit_button("Salvar Alterações")
+                            
+                            if submit_edit_user:
+                                if not ed_name or not ed_email:
+                                    st.warning("Nome e e-mail são obrigatórios.")
+                                else:
+                                    ok_ed, msg_ed = db.update_user_by_admin(edit_target, ed_name, ed_email, ed_pass)
+                                    if ok_ed:
+                                        st.success(msg_ed)
+                                        st.rerun()
+                                    else:
+                                        st.error(msg_ed)
+
+            with tab3:
+                st.subheader("Ativar ou Inativar Usuários")
+                df_users = pd.DataFrame(users_list, columns=["Usuário", "Nome Completo", "E-mail", "Ativo", "Troca Obrigatória"])
+                st.dataframe(df_users, use_container_width=True)
+                
+                target_user = st.selectbox("Selecione o usuário para alterar status:", options=[u[0] for u in users_list if u[0] != "admin"], key="status_select")
+                if target_user:
+                    current_status = next((u[3] for u in users_list if u[0] == target_user), 1)
+                    action_label = "Inativar Usuário" if current_status == 1 else "Reativar Usuário"
+                    
+                    if st.button(action_label):
+                        new_status = 0 if current_status == 1 else 1
+                        db.toggle_user_status(target_user, new_status)
+                        st.success(f"Status do usuário {target_user} alterado com sucesso!")
+                        st.rerun()
