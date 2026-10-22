@@ -176,7 +176,6 @@ else:
         if user_notifs:
             st.markdown("### 📬 Histórico de Avisos")
             for idx, n in enumerate(user_notifs):
-                # n: (id, mensagem, data_envio, lida)
                 status_icon = "🟢 Nova" if n[3] == 0 else "⚪ Lida"
                 with st.container():
                     st.markdown(f"**{status_icon}** — *{n[2]}*")
@@ -306,10 +305,10 @@ else:
         
         st.rerun()
 
-    # 1. CALENDÁRIO GERAL COM INTERAÇÃO DE CLIQUE
+    # 1. CALENDÁRIO GERAL COM INTERAÇÃO DE CLIQUE NO DIA E NO EVENTO
     if menu == "📅 Calendário Geral":
         render_header("📅 Calendário da Sala de Reunião - CSOL-3")
-        st.markdown("Visualize as reuniões agendadas. **Clique em qualquer evento do calendário** ou selecione a data na barra lateral para ver os detalhes e gerenciar.")
+        st.markdown("Visualize as reuniões agendadas. **Clique em qualquer dia do calendário** para abrir os agendamentos da data ou gerenciar pela barra lateral.")
         
         events = db.get_calendar_events()
         
@@ -332,54 +331,26 @@ else:
             "height": 600
         }
         
-        # Captura o retorno do componente ao clicar em eventos/datas
+        # Captura o retorno do componente de calendário
         cal_data = calendar(events=events, options=calendar_options, key="calendar_csol3")
         
-        # --- PROCESSA O CLIQUE EM EVENTO NO CALENDÁRIO ---
-        if cal_data and "eventClick" in cal_data:
-            clicked_event = cal_data["eventClick"]["event"]
-            event_title = clicked_event.get("title", "")
-            event_start = clicked_event.get("start", "")
+        # --- PROCESSA O CLIQUE EM QUALQUER DATA DO CALENDÁRIO ---
+        if cal_data:
+            selected_date_str = None
             
-            st.markdown("---")
-            st.markdown("### 📌 Detalhes da Reunião Selecionada")
+            # Se clicou em um dia vazio do mês
+            if "dateClick" in cal_data:
+                selected_date_str = cal_data["dateClick"].get("date", "").split("T")[0]
             
-            # Formatação de data/hora a partir da string enviada pelo FullCalendar
-            try:
-                date_part = event_start.split("T")[0]
-                dt_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                formatted_dt = dt_obj.strftime("%d/%m/%Y")
-            except Exception:
-                date_part = ""
-                formatted_dt = event_start
-
-            # Busca no banco os dados completos do agendamento do dia
-            all_b = db.get_all_bookings()
-            matching_booking = next((b for b in all_b if b[4] == date_part and b[3] in event_title), None)
+            # Se clicou diretamente em cima de uma reunião agendada
+            elif "eventClick" in cal_data:
+                clicked_event = cal_data["eventClick"]["event"]
+                event_start = clicked_event.get("start", "")
+                selected_date_str = event_start.split("T")[0]
             
-            if matching_booking:
-                b_id, b_user, b_fullname, b_title, b_date, b_start, b_end = matching_booking
-                
-                col_det1, col_det2 = st.columns([3, 1])
-                with col_det1:
-                    st.success(f"**Assunto:** {b_title}")
-                    st.write(f"👤 **Responsável:** {b_fullname} (`{b_user}`)")
-                    st.write(f"📅 **Data:** {formatted_dt}")
-                    st.write(f"⏰ **Horário:** {b_start} às {b_end}")
-                    
-                with col_det2:
-                    if st.session_state.username == "admin" or st.session_state.username == b_user:
-                        if st.button("❌ Cancelar esta Reunião", key=f"cal_del_{b_id}"):
-                            ok_del, msg_del = db.delete_booking(b_id, st.session_state.username)
-                            if ok_del:
-                                st.success(msg_del)
-                                st.rerun()
-                            else:
-                                st.error(msg_del)
-                    else:
-                        st.caption("Apenas o responsável ou administrador podem cancelar.")
-            else:
-                st.info(f"**Reunião:** {event_title} | **Data:** {formatted_dt}")
+            # Dispara o modal automaticamente para a data identificada
+            if selected_date_str:
+                show_day_dialog(selected_date_str)
 
     # 2. RELATÓRIO DE AGENDAMENTOS COM PRÉ-VISUALIZAÇÃO E PDF
     elif menu == "📊 Relatório de Agendamentos":
