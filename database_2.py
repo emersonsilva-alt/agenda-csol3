@@ -1,4 +1,5 @@
-import sqlite3
+import os
+import psycopg2
 from datetime import datetime
 import bcrypt
 import smtplib
@@ -7,13 +8,24 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 
-DB_NAME = "csol3_agenda.db"
+# --- CONFIGURAÇÃO DA CONEXÃO COM O SUPABASE (POSTGRESQL) ---
+def get_db_connection():
+    try:
+        import streamlit as st
+        database_url = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL"))
+    except Exception:
+        database_url = os.getenv("SUPABASE_URL")
+        
+    if not database_url:
+        raise ValueError("A variável SUPABASE_URL não está configurada nos segredos do Streamlit ou ambiente.")
+        
+    return psycopg2.connect(database_url)
 
 # --- CONFIGURAÇÕES DE EMAIL / GMAIL (SENHA DE APP) ---
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "saladereuniao.csol3@gmail.com"
-SENDER_PASSWORD = "qzhllayezztjzfmt"  # Senha de aplicativo gerada
+SENDER_PASSWORD = "qzhllawezztjzfmd"  # Senha de aplicativo gerada
 
 def enviar_email_convite_ics(email_destino, nome_usuario, titulo_reuniao, data_str, hora_inicio, hora_fim):
     try:
@@ -75,7 +87,7 @@ END:VCALENDAR"""
         return False, f"Falha ao enviar e-mail: {str(e)}"
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -89,15 +101,9 @@ def init_db():
         )
     ''')
     
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN email TEXT")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             username TEXT,
             title TEXT,
             date TEXT,
@@ -109,7 +115,7 @@ def init_db():
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             username TEXT,
             message TEXT,
             date TEXT,
@@ -122,18 +128,20 @@ def init_db():
     if cursor.fetchone()[0] == 0:
         hashed_default_pwd = bcrypt.hashpw("admin123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         cursor.execute(
-            "INSERT INTO users (username, password, full_name, email, is_active, must_change_password) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (username, password, full_name, email, is_active, must_change_password) VALUES (%s, %s, %s, %s, %s, %s)",
             ("admin", hashed_default_pwd, "Administrador CSOL-3", "saladereuniao.csol3@gmail.com", 1, 0)
         )
         
     conn.commit()
+    cursor.close()
     conn.close()
 
 def verify_user(username, password):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT password, full_name, is_active, must_change_password FROM users WHERE username = ?", (username,))
+    cursor.execute("SELECT password, full_name, is_active, must_change_password FROM users WHERE username = %s", (username,))
     user = cursor.fetchone()
+    cursor.close()
     conn.close()
     
     if user:
@@ -149,65 +157,71 @@ def verify_user(username, password):
 def add_user_by_admin(username, password, full_name, email):
     try:
         hashed_pwd = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO users (username, password, full_name, email, is_active, must_change_password) VALUES (?, ?, ?, ?, 1, 1)", 
+            "INSERT INTO users (username, password, full_name, email, is_active, must_change_password) VALUES (%s, %s, %s, %s, 1, 1)", 
             (username, hashed_pwd, full_name, email)
         )
         conn.commit()
+        cursor.close()
         conn.close()
         return True, "Usuário cadastrado com sucesso!"
-    except sqlite3.IntegrityError:
-        return False, "Este nome de usuário já existe."
+    except Exception:
+        return False, "Este nome de usuário já existe ou ocorreu um erro."
 
 def update_user_by_admin(username, full_name, email, new_password=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     try:
         if new_password and new_password.strip():
             hashed_pwd = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             cursor.execute(
-                "UPDATE users SET full_name = ?, email = ?, password = ?, must_change_password = 1 WHERE username = ?",
+                "UPDATE users SET full_name = %s, email = %s, password = %s, must_change_password = 1 WHERE username = %s",
                 (full_name, email, hashed_pwd, username)
             )
         else:
             cursor.execute(
-                "UPDATE users SET full_name = ?, email = ? WHERE username = ?",
+                "UPDATE users SET full_name = %s, email = %s WHERE username = %s",
                 (full_name, email, username)
             )
         conn.commit()
+        cursor.close()
         conn.close()
         return True, "Cadastro atualizado com sucesso!"
     except Exception as e:
+        cursor.close()
         conn.close()
         return False, f"Erro ao atualizar: {str(e)}"
 
 def update_password(username, new_password):
     hashed_pwd = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET password = ?, must_change_password = 0 WHERE username = ?", (hashed_pwd, username))
+    cursor.execute("UPDATE users SET password = %s, must_change_password = 0 WHERE username = %s", (hashed_pwd, username))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def toggle_user_status(username, status):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET is_active = ? WHERE username = ?", (status, username))
+    cursor.execute("UPDATE users SET is_active = %s WHERE username = %s", (status, username))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def get_all_users():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT username, full_name, email, is_active, must_change_password FROM users")
     data = cursor.fetchall()
+    cursor.close()
     conn.close()
     return data
 
 def get_all_bookings():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT b.id, b.username, u.full_name, b.title, b.date, b.start_time, b.end_time 
@@ -216,20 +230,22 @@ def get_all_bookings():
         ORDER BY b.date ASC, b.start_time ASC
     ''')
     data = cursor.fetchall()
+    cursor.close()
     conn.close()
     return data
 
 def get_bookings_by_period(start_date, end_date):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT b.id, b.username, u.full_name, b.title, b.date, b.start_time, b.end_time 
         FROM bookings b 
         JOIN users u ON b.username = u.username 
-        WHERE b.date BETWEEN ? AND ?
+        WHERE b.date BETWEEN %s AND %s
         ORDER BY b.date ASC, b.start_time ASC
     ''', (start_date, end_date))
     data = cursor.fetchall()
+    cursor.close()
     conn.close()
     return data
 
@@ -249,50 +265,55 @@ def get_calendar_events():
     return events
 
 def add_notification(username, message, date_str):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO notifications (username, message, date) VALUES (?, ?, ?)", (username, message, date_str))
+    cursor.execute("INSERT INTO notifications (username, message, date) VALUES (%s, %s, %s)", (username, message, date_str))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def get_user_notifications(username):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, message, date, is_read FROM notifications WHERE username = ? ORDER BY id DESC", (username,))
+    cursor.execute("SELECT id, message, date, is_read FROM notifications WHERE username = %s ORDER BY id DESC", (username,))
     data = cursor.fetchall()
+    cursor.close()
     conn.close()
     return data
 
 def mark_notifications_as_read(username):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE notifications SET is_read = 1 WHERE username = ?", (username,))
+    cursor.execute("UPDATE notifications SET is_read = 1 WHERE username = %s", (username,))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def add_booking(username, title, date_str, start_time, end_time, guest_emails_str=""):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT full_name, email FROM users WHERE username = ?", (username,))
+    cursor.execute("SELECT full_name, email FROM users WHERE username = %s", (username,))
     user_res = cursor.fetchone()
     full_name = user_res[0] if user_res else username
     creator_email = user_res[1] if user_res and user_res[1] else SENDER_EMAIL
 
     cursor.execute('''
         SELECT start_time, end_time FROM bookings 
-        WHERE date = ? AND NOT (end_time <= ? OR start_time >= ?)
+        WHERE date = %s AND NOT (end_time <= %s OR start_time >= %s)
     ''', (date_str, start_time, end_time))
     
     if cursor.fetchall():
+        cursor.close()
         conn.close()
         return False, "Já existe uma reserva na sala CSOL-3 que conflita com este horário!"
     
     cursor.execute('''
         INSERT INTO bookings (username, title, date, start_time, end_time) 
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
     ''', (username, title, date_str, start_time, end_time))
     conn.commit()
+    cursor.close()
     conn.close()
     
     msg = f"Reserva confirmada: '{title}' em {date_str} das {start_time} às {end_time}."
@@ -313,61 +334,68 @@ def add_booking(username, title, date_str, start_time, end_time, guest_emails_st
     return True, "Reserva realizada com sucesso e convites disparados por e-mail!"
 
 def update_booking(booking_id, username, title, date_str, start_time, end_time):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT username FROM bookings WHERE id = ?", (booking_id,))
+    cursor.execute("SELECT username FROM bookings WHERE id = %s", (booking_id,))
     res = cursor.fetchone()
     if not res or (res[0] != username and username != "admin"):
+        cursor.close()
         conn.close()
         return False, "Você não tem permissão para alterar esta reserva."
         
     cursor.execute('''
         SELECT start_time, end_time FROM bookings 
-        WHERE date = ? AND id != ? AND NOT (end_time <= ? OR start_time >= ?)
+        WHERE date = %s AND id != %s AND NOT (end_time <= %s OR start_time >= %s)
     ''', (date_str, booking_id, start_time, end_time))
     
     if cursor.fetchall():
+        cursor.close()
         conn.close()
         return False, "Conflito de horário com outra reserva existente!"
         
     cursor.execute('''
-        UPDATE bookings SET title = ?, date = ?, start_time = ?, end_time = ? WHERE id = ?
+        UPDATE bookings SET title = %s, date = %s, start_time = %s, end_time = %s WHERE id = %s
     ''', (title, date_str, start_time, end_time, booking_id))
     conn.commit()
+    cursor.close()
     conn.close()
     return True, "Reserva alterada com sucesso!"
 
 def delete_booking(booking_id, username):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT username FROM bookings WHERE id = ?", (booking_id,))
+    cursor.execute("SELECT username FROM bookings WHERE id = %s", (booking_id,))
     res = cursor.fetchone()
     if not res:
+        cursor.close()
         conn.close()
         return False, "Reserva não encontrada."
         
     owner = res[0]
     if username == "admin" or username == owner:
-        cursor.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
+        cursor.execute("DELETE FROM bookings WHERE id = %s", (booking_id,))
         conn.commit()
+        cursor.close()
         conn.close()
         return True, "Reserva cancelada com sucesso!"
     else:
+        cursor.close()
         conn.close()
         return False, "Você só pode cancelar suas próprias reservas."
 
 def resend_invitation_for_single_booking(booking_id, extra_guests_str=""):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT b.username, u.full_name, u.email, b.title, b.date, b.start_time, b.end_time 
         FROM bookings b 
         JOIN users u ON b.username = u.username
-        WHERE b.id = ?
+        WHERE b.id = %s
     ''', (booking_id,))
     booking = cursor.fetchone()
+    cursor.close()
     conn.close()
     
     if not booking:
